@@ -7,3 +7,6 @@ spacy==3.7.5
 gensim==4.3.2
 joblib==1.4.2
 tqdm==4.66.4
+ftfy==6.2.0
+nltk==3.9.1
+ipykernel

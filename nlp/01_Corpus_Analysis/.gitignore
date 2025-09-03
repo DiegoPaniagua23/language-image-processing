@@ -1,0 +1,10 @@
+.nlpvenv/
+.venv/
+__pycache__/
+*.pyc
+
+data/interim/
+data/processed/
+artifacts/
+
+*pdf

@@ -10,3 +10,4 @@ tqdm==4.66.4
 ftfy==6.2.0
 nltk==3.9.1
 ipykernel
+es-core-news-sm==3.7.0

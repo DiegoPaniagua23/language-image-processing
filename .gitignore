@@ -66,6 +66,9 @@ reports/tables/
 # =============================================================================
 class_notebooks/
 presentations/
+notebooks/
+diapositivas/
 topics/
 tareas/
 *pdf
+

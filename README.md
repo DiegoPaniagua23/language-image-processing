@@ -10,19 +10,19 @@ This repository collects assignments, lecture material, and supporting resources
 
 This course covers key areas of natural language processing and computer vision including:
 
-1. Introduction to NLP and traditional algorithms
-2. Embeddings
-3. Neural networks and text classification
-4. Deep learning architectures for text
-5. Transformers
-6. Introduction to Computer Vision
-7. Fundamentals of Convolutional Neural Networks (CNN)
-8. Pre-trained models: VGG, ResNet
-9. Diffusion models
-10. Fine-tuning and feature extraction
-11. Object detection with pre-trained models
-12. Introduction to text in images
-13. Text generation models in images
+1. **Introduction to NLP and traditional algorithms**
+2. **Embeddings***
+3. **Neural networks and text classification**
+4. **Deep learning architectures for text**
+5. **Transformers**
+6. **Introduction to Computer Vision**
+7. **Fundamentals of Convolutional Neural Networks (CNN)**
+8. **Pre-trained models: VGG, ResNet**
+9. **Diffusion models**
+10. **Fine-tuning and feature extraction**
+11. **Object detection with pre-trained models**
+12. **Introduction to text in images**
+13. **Text generation models in images**
 
 ## 📁 Repository Structure
 

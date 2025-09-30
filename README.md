@@ -11,7 +11,7 @@ This repository collects assignments, lecture material, and supporting resources
 This course covers key areas of natural language processing and computer vision including:
 
 1. **Introduction to NLP and traditional algorithms**
-2. **Embeddings***
+2. **Embeddings**
 3. **Neural networks and text classification**
 4. **Deep learning architectures for text**
 5. **Transformers**

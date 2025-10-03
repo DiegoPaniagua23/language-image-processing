@@ -1,2 +1,0 @@
-epoch,train_loss,val_loss,val_ppl,best
-1,4.293826,3.469989,32.136381,YES

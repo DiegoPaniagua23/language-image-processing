@@ -1,0 +1,27 @@
+name: nlp-t2
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      # === Datos / utilidades ===
+      - lyricsgenius
+      - langdetect
+      - pandas
+      - unidecode
+
+      # === Entrenamiento clásico (char/word) ===
+      - torch
+
+      # === Transformers  ===
+      - transformers
+      - datasets
+      - accelerate
+      - peft
+      - safetensors
+      - sentencepiece
+
+      # === Métricas / plots ===
+      - scikit-learn
+      - matplotlib

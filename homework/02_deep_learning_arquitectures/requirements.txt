@@ -1,0 +1,19 @@
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch
+numpy
+matplotlib
+seaborn
+transformers
+datasets
+accelerate
+peft
+safetensors
+sentencepiece
+protobuf
+pyarrow
+bitsandbytes>=0.43
+pandas
+langdetect
+lyricsgenius
+unidecode
+scikit-learn

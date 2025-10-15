@@ -1,27 +1,43 @@
 name: nlp-t2
 channels:
+  - pytorch
+  - nvidia
   - conda-forge
 dependencies:
+  # Core
   - python=3.11
+
+  # PyTorch con CUDA
+  - pytorch
+  - pytorch-cuda=12.1
+
+  # Utilidades del sistema
   - pip
+
+  # Paquetes vía pip
   - pip:
-      # === Datos / utilidades ===
-      - lyricsgenius
-      - langdetect
-      - pandas
-      - unidecode
-
-      # === Entrenamiento clásico (char/word) ===
-      - torch
-
-      # === Transformers  ===
+      # NLP / HF stack
       - transformers
       - datasets
       - accelerate
       - peft
       - safetensors
       - sentencepiece
+      - protobuf
+      - pyarrow
 
-      # === Métricas / plots ===
+      # QLoRA / 4-bit
+      - bitsandbytes>=0.43
+
+      # Data pipeline
+      - pandas
+      - langdetect
+      - lyricsgenius
+      - unidecode
       - scikit-learn
-      - matplotlib
+
+      # Otros
+  - numpy
+  - matplotlib
+  - seaborn
+

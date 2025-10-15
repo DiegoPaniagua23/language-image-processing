@@ -30,19 +30,27 @@ The repository follows the next structure:
 
 ```
 language-image-processing/
-├── homework/
+├── nlp/                          # Natural Language Processing assignments
 │   ├── 01_corpus_analysis/
-│   └── 02_deep_learning_arquitecturas/
+│   └── 02_deep_learning_arquitectures/
+├── cv/                           # Computer Vision assignments (upcoming)
 ├── LICENSE
 └── README.md
 ```
 
 ## 📊 Assignments
 
+### Natural Language Processing (NLP)
+
 | Assignment | Module | Key Methods | Link |
 |------------|--------|-------------|------|
-| **01** | **Corpus Analysis (NLP)** | Token statistics, Zipf law, TF-IDF, Logistic/SVM baselines | [📂 View](./homework/01_corpus_analysis/) |
-| **02** | **Deep Learning Architectures** | CNNs, sequence models, Transformers (reading + report) | [📂 View](./homework/02_deep_learning_arquitecturas/) |
+| **01** | **Corpus Analysis** | Token statistics, Zipf law, TF-IDF, Logistic/SVM baselines | [📂 View](./nlp/01_corpus_analysis/) |
+| **02** | **Deep Learning Architectures** | RNN/LSTM/GRU, LLaMA-3 LoRA, mDeBERTa, text generation & classification | [📂 View](./nlp/02_deep_learning_arquitectures/) |
+
+### Computer Vision (CV)
+
+| Assignment | Module | Key Methods | Link |
+|------------|--------|-------------|------|
 | 03 | ... | ... | ... |
 | 04 | ... | ... | ... |
 

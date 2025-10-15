@@ -4,45 +4,42 @@
 generate.py
 ===========
 
-Script para generar texto con modelos entrenados (RNN/LSTM/GRU o GPT-2/TinyLlama).
+Script para generar texto con modelos entrenados (RNN/LSTM/GRU o LLaMA-3 LoRA).
 
 CARACTERÍSTICAS:
 - Soporta modelos RNN/LSTM/GRU (train_textgen.py)
-- Soporta modelos GPT-2/TinyLlama con fine-tuning o LoRA
+- Soporta LLaMA-3 8B con LoRA adapters (train_llama3_lora.py)
 - Generación con control de temperatura, top-k, top-p
 - Múltiples samples con diferentes seeds
 - Logging a archivos (requisito Lab-SB)
+- Prompt automático para modelos LoRA fine-tuned en canciones
 
 USO BÁSICO:
     # Generar con RNN/LSTM/GRU:
     python generate.py --checkpoint ../models/lstm_char/lstm_char_best.pt \\
         --model_type rnn --num_samples 3
 
-    # Generar con GPT-2 fine-tuned:
-    python generate.py --checkpoint ../models/gpt_ft \\
-        --model_type gpt --num_samples 5
-
-    # Generar con LoRA adapters:
-    python generate.py --checkpoint ../models/gpt2_lora \\
-        --model_type gpt --use_lora --num_samples 3
+    # Generar con LLaMA-3 LoRA adapters:
+    python generate.py --checkpoint ../models/llama3_lora \\
+        --model_type llama --use_lora \\
+        --base_model ../models/llama-3-8b \\
+        --num_samples 5
 
 PARÁMETROS DE GENERACIÓN:
     --temperature FLOAT    # 0.7=conservador, 1.0=balanceado, 1.2=creativo
-    --top_k INT            # Limita a top-k tokens más probables
-    --top_p FLOAT          # Nucleus sampling (0.9-0.95 recomendado)
+    --top_k INT            # Limita a top-k tokens más probables (solo LLaMA)
+    --top_p FLOAT          # Nucleus sampling 0.9-0.95 recomendado (solo LLaMA)
     --max_length INT       # Longitud máxima del texto generado
+    --prompt STR           # Prompt inicial (vacío = auto-genera para LLaMA)
 
 OUTPUTS:
-- Samples: {output_dir}/sample_{i}.txt
+- Samples: {output_dir}/sample_{i}_seed{seed}.txt
+- Metrics: {output_dir}/metrics.jsonl
 - Log: {log_file}
 
-MODIFICADO PARA LAB-SB:
-- Sin print() - solo logging a archivos
-- Manejo robusto de errores
-- Compatible con modelos cuantizados (QLoRA)
 """
 
-import os, argparse, logging, random
+import os, argparse, logging, random, json, time
 from pathlib import Path
 from datetime import datetime
 import numpy as np
@@ -196,19 +193,19 @@ def generate_word_rnn(model, device, itos, stoi, start_tokens=None, max_length=1
     return " ".join(toks)
 
 @torch.no_grad()
-def generate_gpt(model, tokenizer, device, prompt="", max_length=300, temperature=0.9, top_k=50, top_p=0.95, logger=None):
+def generate_llama(model, tokenizer, device, prompt="", max_length=300, temperature=0.9, top_k=50, top_p=0.95, logger=None):
     """
-    Genera texto con modelo GPT-2/TinyLlama.
+    Genera texto con modelo LLaMA-3 (con o sin LoRA).
 
     Args:
-        model: Modelo AutoModelForCausalLM
-        tokenizer: Tokenizer
+        model: Modelo AutoModelForCausalLM o PeftModel
+        tokenizer: Tokenizer de LLaMA
         device: torch.device
-        prompt: Texto inicial
+        prompt: Texto inicial (si está vacío, se usa prompt por defecto)
         max_length: Número de tokens a generar
-        temperature: Control de aleatoriedad
-        top_k: Top-k sampling
-        top_p: Nucleus sampling
+        temperature: Control de aleatoriedad (0.7-1.2)
+        top_k: Top-k sampling (20-60 típico)
+        top_p: Nucleus sampling (0.85-0.95 típico)
         logger: Logger opcional
 
     Returns:
@@ -217,17 +214,14 @@ def generate_gpt(model, tokenizer, device, prompt="", max_length=300, temperatur
     model.eval()
 
     if logger:
-        logger.info(f"Generando GPT (prompt='{prompt[:30]}...', max_len={max_length}, temp={temperature}, top_k={top_k}, top_p={top_p})")
+        logger.info(f"Generando LLaMA (prompt='{prompt[:40]}...', max_len={max_length}, temp={temperature}, top_k={top_k}, top_p={top_p})")
 
     # Preparar input
     if not prompt:
-        if tokenizer.eos_token_id is not None:
-            input_ids = torch.tensor([[tokenizer.eos_token_id]], dtype=torch.long, device=device)
-            attention_mask = torch.ones_like(input_ids)
-        else:
-            enc = tokenizer(" ", return_tensors="pt")
-            input_ids = enc["input_ids"].to(device)
-            attention_mask = enc.get("attention_mask", torch.ones_like(input_ids)).to(device)
+        # Usar espacio como fallback mínimo
+        enc = tokenizer(" ", return_tensors="pt")
+        input_ids = enc["input_ids"].to(device)
+        attention_mask = enc.get("attention_mask", torch.ones_like(input_ids)).to(device)
     else:
         enc = tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
         if enc["input_ids"].shape[-1] == 0:
@@ -255,36 +249,36 @@ def main():
     Función principal para generación de texto.
 
     Workflow:
-    1. Carga checkpoint (RNN o GPT)
+    1. Carga checkpoint (RNN/LSTM/GRU o LLaMA-3 LoRA)
     2. Configura parámetros de generación
     3. Genera múltiples samples con diferentes seeds
-    4. Guarda samples en archivos
+    4. Guarda samples y métricas en archivos
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("--checkpoint", type=str, required=True,
-                    help="Path al checkpoint (.pt para RNN, directorio para GPT)")
-    ap.add_argument("--model_type", type=str, required=True, choices=["rnn", "gpt"],
-                    help="Tipo de modelo: 'rnn' (train_textgen.py) o 'gpt' (train_gpt_ft.py)")
+                    help="Path al checkpoint (.pt para RNN, directorio para LLaMA)")
+    ap.add_argument("--model_type", type=str, required=True, choices=["rnn", "llama"],
+                    help="Tipo de modelo: 'rnn' (RNN/LSTM/GRU) o 'llama' (LLaMA-3 LoRA)")
 
     # Parámetros de generación
     ap.add_argument("--prompt", type=str, default="",
-                    help="Texto inicial (vacío = generación desde cero)")
+                    help="Texto inicial (vacío = auto-genera prompt de canciones para LLaMA)")
     ap.add_argument("--max_length", type=int, default=300,
-                    help="Longitud máxima del texto generado")
+                    help="Longitud máxima del texto generado (tokens para LLaMA, chars/words para RNN)")
     ap.add_argument("--temperature", type=float, default=0.9,
                     help="Temperatura (0.7=conservador, 1.0=balanceado, 1.2=creativo)")
     ap.add_argument("--top_k", type=int, default=50,
-                    help="Top-k sampling (solo GPT)")
+                    help="Top-k sampling (solo LLaMA, valores típicos: 20-60)")
     ap.add_argument("--top_p", type=float, default=0.95,
-                    help="Nucleus sampling (solo GPT)")
+                    help="Nucleus sampling (solo LLaMA, valores típicos: 0.85-0.95)")
     ap.add_argument("--num_samples", type=int, default=1,
-                    help="Número de samples a generar")
+                    help="Número de samples a generar con diferentes seeds")
 
-    # Para modelos LoRA
+    # Para modelos LoRA (LLaMA-3)
     ap.add_argument("--use_lora", action="store_true",
-                    help="Si el checkpoint es LoRA adapters")
-    ap.add_argument("--base_model", type=str, default="gpt2",
-                    help="Modelo base para LoRA (p.ej. gpt2, gpt2-medium)")
+                    help="Si el checkpoint contiene LoRA adapters (solo para LLaMA)")
+    ap.add_argument("--base_model", type=str, default="../models/llama-3-8b",
+                    help="Path al modelo base LLaMA-3 8B (requerido para LoRA)")
 
     # Output
     ap.add_argument("--output_dir", type=str, default="../results/samples",
@@ -293,6 +287,8 @@ def main():
                     help="Archivo de log (default: auto-genera)")
     ap.add_argument("--seed", type=int, default=42,
                     help="Semilla inicial (se incrementa por sample)")
+    ap.add_argument("--metrics_file", type=str, default=None,
+                    help="Archivo JSONL para registrar métricas de inferencia")
 
     args = ap.parse_args()
 
@@ -309,6 +305,13 @@ def main():
     # Crear directorio de output
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.metrics_file is None:
+        args.metrics_file = str(output_dir / "metrics.jsonl")
+    metrics_path = Path(args.metrics_file)
+    metrics_path.parent.mkdir(parents=True, exist_ok=True)
+
+    metrics_rows = []
 
     # --------- Cargar Modelo ----------
     if args.model_type == "rnn":
@@ -337,13 +340,13 @@ def main():
         level = model_args.get("level", "char")
         logger.info(f"Modelo cargado: {model_args['arch']} ({level}-level, vocab={vocab_size})")
 
-    elif args.model_type == "gpt":
-        logger.info(f"Cargando modelo GPT desde {args.checkpoint}")
+    elif args.model_type == "llama":
+        logger.info(f"Cargando modelo LLaMA-3 desde {args.checkpoint}")
 
         from transformers import AutoTokenizer, AutoModelForCausalLM
 
         if args.use_lora:
-            # Cargar LoRA adapters
+            # Cargar modelo base + LoRA adapters
             logger.info(f"Cargando base model: {args.base_model}")
             from peft import PeftModel
 
@@ -363,7 +366,8 @@ def main():
 
             tokenizer = AutoTokenizer.from_pretrained(args.checkpoint)
         else:
-            # Cargar modelo completo
+            # Cargar modelo LLaMA completo (full fine-tuning)
+            logger.warning("Cargando LLaMA sin LoRA. Esto requiere mucha memoria.")
             tokenizer = AutoTokenizer.from_pretrained(args.checkpoint)
             model = AutoModelForCausalLM.from_pretrained(
                 args.checkpoint,
@@ -375,7 +379,7 @@ def main():
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        logger.info(f"Modelo GPT cargado exitosamente")
+        logger.info(f"Modelo LLaMA-3 cargado exitosamente")
 
     # --------- Generar Samples ----------
     logger.info(f"Generando {args.num_samples} samples...")
@@ -387,6 +391,12 @@ def main():
         logger.info(f"\n=== Sample {i+1}/{args.num_samples} (seed={sample_seed}) ===")
 
         try:
+            # Inicializar current_prompt para ambos tipos de modelos
+            current_prompt = args.prompt
+
+            if torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
+            t_start = time.time()
             if args.model_type == "rnn":
                 if level == "char":
                     text = generate_char_rnn(
@@ -408,16 +418,28 @@ def main():
                         logger=logger
                     )
 
-            elif args.model_type == "gpt":
-                text = generate_gpt(
+            elif args.model_type == "llama":
+                # Si no hay prompt, usar uno que guíe hacia letras de canciones
+                current_prompt = args.prompt
+                if not current_prompt and args.use_lora:
+                    # Prompt por defecto para modelos fine-tuned en canciones
+                    current_prompt = "<|startsong|> I'm down for whatever, I gotta blow son, is now or never\n"
+                    logger.info("Usando prompt por defecto para canciones")
+
+                text = generate_llama(
                     model, tokenizer, device,
-                    prompt=args.prompt,
+                    prompt=current_prompt,
                     max_length=args.max_length,
                     temperature=args.temperature,
                     top_k=args.top_k,
                     top_p=args.top_p,
                     logger=logger
                 )
+            infer_time = time.time() - t_start
+            if torch.cuda.is_available():
+                peak_mem = torch.cuda.max_memory_allocated() / (1024**2)
+            else:
+                peak_mem = 0.0
 
             # Guardar sample
             output_file = output_dir / f"sample_{i+1}_seed{sample_seed}.txt"
@@ -425,13 +447,31 @@ def main():
                 f.write(f"# Sample {i+1}\n")
                 f.write(f"# Seed: {sample_seed}\n")
                 f.write(f"# Temperature: {args.temperature}\n")
-                f.write(f"# Prompt: '{args.prompt}'\n")
+                # Guardar el prompt real usado (puede ser diferente del argumento)
+                actual_prompt = current_prompt if args.model_type == "llama" else args.prompt
+                f.write(f"# Prompt: '{actual_prompt}'\n")
                 f.write(f"# {'='*60}\n\n")
                 f.write(text)
 
             logger.info(f"Sample guardado en {output_file}")
             logger.info(f"Longitud: {len(text)} caracteres")
             logger.info(f"Preview: {text[:100]}...")
+
+            metrics_rows.append({
+                "timestamp": datetime.now().isoformat(),
+                "sample_id": i + 1,
+                "seed": sample_seed,
+                "model_type": args.model_type,
+                "checkpoint": args.checkpoint,
+                "prompt": args.prompt,
+                "max_length": args.max_length,
+                "temperature": args.temperature,
+                "top_k": args.top_k,
+                "top_p": args.top_p,
+                "inference_time_sec": infer_time,
+                "peak_gpu_mem_mb": peak_mem,
+                "output_file": str(output_file)
+            })
 
         except Exception as e:
             logger.error(f"Error generando sample {i+1}: {e}")
@@ -440,6 +480,12 @@ def main():
     logger.info(f"\n{'='*60}")
     logger.info(f"Generación completada: {args.num_samples} samples en {output_dir}")
     logger.info(f"Log completo: {args.log_file}")
+
+    if metrics_rows:
+        with open(metrics_path, "a", encoding="utf-8") as f:
+            for row in metrics_rows:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        logger.info(f"Métricas registradas en {metrics_path}")
 
 if __name__ == "__main__":
     main()

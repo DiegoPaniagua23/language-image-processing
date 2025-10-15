@@ -23,7 +23,7 @@ REQUISITOS:
 
 """
 
-import os, sys, math, random, argparse, csv, time, re, logging
+import os, sys, math, random, argparse, csv, time, re, logging, json
 from pathlib import Path
 from datetime import datetime
 import numpy as np
@@ -402,6 +402,8 @@ def main():
     ap.add_argument("--sample_every", type=int, default=1)
     ap.add_argument("--sample_temp", type=float, default=0.9)
     ap.add_argument("--sample_len", type=int, default=400)
+    ap.add_argument("--summary_path", type=str, default=None,
+                    help="Ruta para escribir metadata del entrenamiento (JSON)")
     # word options
     ap.add_argument("--min_freq", type=int, default=1)
     ap.add_argument("--lowercase", action="store_true")
@@ -477,6 +479,8 @@ def main():
     # Crear modelo
     # Crear modelo
     model = CharWordLM(vocab_size, args.embedding_dim, args.hidden_size, args.num_layers, args.arch, args.dropout).to(device)
+    total_params = sum(p.numel() for p in model.parameters())
+    logger.info(f"Total parámetros: {total_params:,}")
 
     # Multi-GPU support (DataParallel para 2x Titan RTX en Lab-SB)
     if args.use_multigpu and n_gpus > 1:
@@ -490,14 +494,22 @@ def main():
     # Preparar directorios para guardar resultados
     Path(args.save_dir).mkdir(parents=True, exist_ok=True)
     log_csv = Path(args.log_csv); log_csv.parent.mkdir(parents=True, exist_ok=True)
-    header = ["epoch","train_loss","val_loss","val_ppl","best"]
+    header = ["epoch","train_loss","val_loss","val_ppl","epoch_time_sec","best"]
     best_val = float("inf")
     best_path = Path(args.save_dir) / f"{args.arch}_{args.level}_best.pt"
+
+    if args.summary_path is None:
+        args.summary_path = str(Path(args.save_dir) / "summary.json")
+
+    total_time_sec = 0.0
+    max_gpu_mem_mb = 0.0
 
     # Training loop
     # Training loop
     for epoch in range(1, args.epochs+1):
         t0 = time.time()
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
         # Entrenar una época
         train_loss = run_epoch(model, train_loader, criterion, optimizer, device, logger,
                                grad_clip=args.grad_clip,
@@ -508,6 +520,12 @@ def main():
                                      max_batches=args.max_val_batches,
                                      progress_every=args.progress_every)
         dt = time.time() - t0
+        total_time_sec += dt
+        if torch.cuda.is_available():
+            peak = torch.cuda.max_memory_allocated() / (1024**2)
+            max_gpu_mem_mb = max(max_gpu_mem_mb, peak)
+        else:
+            peak = 0.0
         is_best = ""
 
         # Guardar mejor modelo (basado en val_loss)
@@ -523,10 +541,11 @@ def main():
             is_best = "YES"
 
         # Log resultados de la época
-        logger.info(f"[Epoch {epoch:02d}] Train {train_loss:.4f} | Val {val_loss:.4f} | PPL {val_ppl:.2f} | {dt:.1f}s {('**BEST**' if is_best else '')}")
+        logger.info(f"[Epoch {epoch:02d}] Train {train_loss:.4f} | Val {val_loss:.4f} | PPL {val_ppl:.2f} | {dt:.1f}s | peak_gpu_mb={peak:.1f} {('**BEST**' if is_best else '')}")
         save_csv_row(str(log_csv), {
             "epoch": epoch, "train_loss": f"{train_loss:.6f}",
             "val_loss": f"{val_loss:.6f}", "val_ppl": f"{val_ppl:.6f}",
+            "epoch_time_sec": f"{dt:.4f}",
             "best": is_best
         }, header)
 
@@ -562,6 +581,28 @@ def main():
     logger.info(f"Samples: {args.save_dir}/sample_epoch*.txt")
     logger.info(f"Log completo: {args.log_file}")
     logger.info("="*60)
+
+    steps_per_epoch = len(train_loader)
+    summary = {
+        "arch": args.arch,
+        "level": args.level,
+        "epochs": args.epochs,
+        "seq_len": args.seq_len,
+        "batch_size": args.batch_size,
+        "train_steps": steps_per_epoch * args.epochs,
+        "train_time_sec": total_time_sec,
+        "avg_epoch_time_sec": total_time_sec / max(args.epochs, 1),
+        "max_gpu_mem_mb": max_gpu_mem_mb,
+        "total_parameters": total_params,
+        "best_val_loss": best_val,
+        "best_val_ppl": math.exp(min(20, best_val)),
+        "device": str(device),
+        "log_file": args.log_file
+    }
+
+    with open(args.summary_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+    logger.info(f"Resumen guardado en {args.summary_path}")
 
 if __name__ == "__main__":
     main()
